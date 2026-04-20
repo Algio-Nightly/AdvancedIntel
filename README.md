@@ -1,13 +1,13 @@
 # 🧠 Advanced Intel: Synapse Research Platform
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Deployed on Firebase](https://img.shields.io/badge/Deployed%20on-Firebase-orange.svg)](https://firebase.google.com/)
+[![Deployed on Firebase](https://img.shields.io/badge/Deployed%20on-Firebase-orange.svg)](https://advanced-intel-d9709.web.app/)
 
-> **Project Live Preview:** [🚀 VIEW DEPLOYED APPLICATION](https://your-app-id.web.app) *(Placeholder)*
+> **Project Live Preview:** [VIEW DEPLOYED APP](https://advanced-intel-d9709.web.app/)
 
 ---
 
-## 🌐 Overview
+##  Overview
 
 **Advanced Intel** is a high-fidelity, cognitive research platform designed to bridge the gap between academic data ingestion and creative synthesis. Built with a "Nodes-as-Containers" philosophy, the platform allows researchers to build expansive cognitive maps, mirror research notes across different contexts, and leverage integrated AI to distill complex findings into actionable intelligence.
 
@@ -15,31 +15,31 @@ This repository contains the complete frontend architecture, state management lo
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-### 🗺️ Cognitive Research Canvas
+###  Cognitive Research Canvas
 - **ReactFlow Integration:** A non-linear graph interface for organizing research containers (Nodes).
 - **Infinite Workspace:** Scale your research from a single concept to a multi-threaded library.
 - **Dynamic Contextualization:** Drag and drop dependencies to link documents to specific research nodes.
 
-### 🧩 Selective Dependency Mirroring
+###  Selective Dependency Mirroring
 - **Dependency Mirror Widget:** A specialized tool that allows real-time, read-only syncing of notes from parent nodes or library documents.
 - **Selective Sourcing:** Choose a source (PDF or Node) and select specific markdown slabs to mirror into your current workspace.
 - **Real-time Synchronization:** Updates to source documents propagate instantly to all mirrored instances.
 
-### 🤖 Integrated AI Assistant (Gemini 1.5/3.1)
+###  Integrated AI Assistant (Gemini 1.5/3.1)
 - **Context-Aware Analysis:** The AI assistant reads your selected dependencies and research notes to provide grounded insights.
 - **Direct Deployment:** Convert AI generations into new research widgets with a single click (**SAVE AS NEW NOTE**).
 - **Streaming Response:** High-performance streaming UI for real-time cognitive assistance.
 
-### 📚 Research Library & PDF Engine
+###  Research Library & PDF Engine
 - **Local Archive:** High-speed PDF ingestion with local caching via IndexedDB.
 - **Slab-based Note Taking:** Break down document analysis into modular markdown "slabs" for easier reference.
 - **Full-Spectrum Search:** Filter your entire cognitive database in real-time.
 
 ---
 
-## 🛠️ Technical Stack
+## Technical Stack
 
 - **Framework:** React 18 + Vite
 - **Styling:** Vanilla CSS (Modular) + TailwindCSS (for utility layouts)
@@ -53,7 +53,7 @@ This repository contains the complete frontend architecture, state management lo
 
 ---
 
-## 🏗️ Architecture Overview
+## Architecture Overview
 
 ### 1. State Management (Context API)
 The application utilizes a decentralized context architecture to manage complex research state:
@@ -75,7 +75,7 @@ To ensure high performance with large documents, the platform uses a hybrid stor
 
 ---
 
-## 📖 Component & Function Reference
+## Component & Function Reference
 
 ### `ProjectWorkspace.jsx`
 The primary layout controller for the graph view.

@@ -5,17 +5,19 @@ import { Plus, Activity, FolderClosed, X, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function Projects() {
-  const { projects, createProject, deleteProject, refreshProjects, loading, error } = useProjects();
+  const { projects, createProject, deleteProject, refreshProjects, loading, error: projectError } = useProjects();
   const [isInitializing, setIsInitializing] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState('');
   const [selectedTheme, setSelectedTheme] = useState('clinical-mint');
   const [showForm, setShowForm] = useState(false);
+  const [localError, setLocalError] = useState('');
 
   const handleCreate = async (e) => {
     e.preventDefault();
     if (!newProjectTitle.trim()) return;
     
     setIsInitializing(true);
+    setLocalError('');
     const toastId = toast.loading("Deploying new cognitive nexus...");
     try {
       await createProject(newProjectTitle, selectedTheme);
@@ -24,31 +26,11 @@ export default function Projects() {
       await refreshProjects();
       toast.success("Nexus deployed successfully", { id: toastId });
     } catch (err) {
-      toast.error("Deployment failed: " + err.message, { id: toastId });
+      setLocalError(err.message);
+      toast.error("Deployment failed", { id: toastId });
     } finally {
       setIsInitializing(false);
     }
-  };
-
-  const handlePurgeAll = async () => {
-    toast.warning("Terminate all active workspaces?", {
-      description: "This will permanently purge all projects and nodes.",
-      action: {
-        label: "TERMINATE",
-        onClick: async () => {
-          const toastId = toast.loading("Purging mainframe...");
-          try {
-            for (const p of projects) {
-              await deleteProject(p.projectId);
-            }
-            await refreshProjects();
-            toast.success("Mainframe purged", { id: toastId });
-          } catch (err) {
-            toast.error("Purge failed", { id: toastId });
-          }
-        }
-      }
-    });
   };
 
   return (
@@ -63,15 +45,6 @@ export default function Projects() {
            </div>
 
            <div className="flex items-center gap-4">
-             {projects.length > 0 && (
-               <button 
-                 onClick={handlePurgeAll}
-                 className="px-6 py-3 border border-error/30 text-error/60 rounded-full hover:bg-error/10 hover:text-error transition-all font-display tracking-widest text-[10px] uppercase"
-               >
-                 Purge Mainframe
-               </button>
-             )}
-             
              <button 
                onClick={() => setShowForm(!showForm)}
                disabled={isInitializing}
@@ -135,7 +108,7 @@ export default function Projects() {
           </div>
         )}
 
-        {error && <div className="text-error mb-8">{error}</div>}
+        {(localError || projectError) && <div className="text-error mb-8">{localError || projectError}</div>}
 
         {/* The Grid */}
         {loading && projects.length === 0 ? (

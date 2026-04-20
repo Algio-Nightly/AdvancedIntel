@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { db } from '../services/firebase';
-import { collection, doc, setDoc, getDocs, getDoc, updateDoc, deleteDoc, query, where, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, setDoc, getDocs, getDoc, updateDoc, deleteDoc, query, where, serverTimestamp, orderBy, limit } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 
 export function useFirebase() {
@@ -287,6 +287,25 @@ export function useFirebase() {
     }
   }, [currentUser]);
 
+  const fetchAllUserNodes = useCallback(async () => {
+    if (!currentUser) return [];
+    setLoading(true);
+    try {
+      const q = query(collection(db, "Nodes"), where("uid", "==", currentUser.uid));
+      const querySnapshot = await getDocs(q);
+      const nodes = [];
+      querySnapshot.forEach((docSnap) => {
+        nodes.push(docSnap.data());
+      });
+      return nodes;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [currentUser]);
+
   const updateNodeWidgets = useCallback(async (nodeId, widgets) => {
     if (!currentUser) return;
     setLoading(true);
@@ -347,6 +366,40 @@ export function useFirebase() {
       setLoading(false);
     }
   }, [currentUser]);
+  
+  // 6. TELEMETRY HISTORICAL SNAPSHOTS
+  const saveTelemetrySnapshot = useCallback(async (metrics) => {
+    if (!currentUser) return;
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const snapshotRef = doc(db, "Users", currentUser.uid, "TelemetrySnapshots", today);
+      await setDoc(snapshotRef, {
+        ...metrics,
+        date: today,
+        timestamp: serverTimestamp()
+      }, { merge: true });
+    } catch (err) {
+      console.error("Failed to save telemetry snapshot:", err);
+    }
+  }, [currentUser]);
+
+  const fetchTelemetryHistory = useCallback(async () => {
+    if (!currentUser) return [];
+    try {
+      const q = query(
+        collection(db, "Users", currentUser.uid, "TelemetrySnapshots"),
+        orderBy("timestamp", "desc"),
+        limit(7)
+      );
+      const snap = await getDocs(q);
+      const history = [];
+      snap.forEach(d => history.push(d.data()));
+      return history.reverse(); // Chronological order
+    } catch (err) {
+      console.error("Failed to fetch telemetry history:", err);
+      return [];
+    }
+  }, [currentUser]);
 
   return {
     loading,
@@ -365,9 +418,12 @@ export function useFirebase() {
     fetchDocumentNotes,
     createNode,
     fetchNodesByParent,
+    fetchAllUserNodes,
     updateNodeWidgets,
     updateNodeMetadata,
     updateNodePosition,
-    deleteNode
+    deleteNode,
+    saveTelemetrySnapshot,
+    fetchTelemetryHistory
   };
 }

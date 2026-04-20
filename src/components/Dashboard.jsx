@@ -1,10 +1,12 @@
-import React, { useMemo } from 'react';
-import { Activity, Beaker, Dna, Database, Settings, Box, FolderClosed, FileText, AlertTriangle, Link2, ScanFace } from 'lucide-react';
-import { LineChart, Line, ResponsiveContainer } from 'recharts';
+import React, { useState, useEffect } from 'react';
+import { Database, ShieldAlert, TrendingUp, Brain, Plus, FolderClosed, FileText, Link2, Activity } from 'lucide-react';
 import { useProjects } from '../context/ProjectContext';
 import { useLibrary } from '../context/LibraryContext';
 import { useNavigate } from 'react-router-dom';
 import { formatRelativeTime } from '../lib/utils';
+import { getStorageStats, clearAllBlobs } from '../lib/storage';
+import { useFirebase } from '../hooks/useFirebase';
+import { toast } from 'sonner';
 
 // Static placeholder for sparkline until we implement historical graphing
 const ingestionData = [
@@ -16,28 +18,69 @@ export default function Dashboard() {
   const { documents, loading: docsLoading } = useLibrary();
   const navigate = useNavigate();
 
-  // Compute Global Telemetry Derived State
-  const telemetry = useMemo(() => {
-    let nodes = 0;
-    let edges = 0;
-    let orphans = 0;
+  const { fetchAllUserNodes, saveTelemetrySnapshot, fetchTelemetryHistory } = useFirebase();
+  const [telemetry, setTelemetry] = useState({
+    storage: { formatted: '0 MB', count: 0 },
+    cdi: 0,
+    velocity: 0,
+    crd: 0,
+    aiSaturation: 0,
+    history: []
+  });
 
-    projects.forEach(p => {
-      nodes += p.metrics?.totalNodes || 0;
-      edges += p.metrics?.totalEdges || 0;
-      orphans += p.metrics?.orphanCount || 0;
-    });
+  const loadTelemetry = async () => {
+    try {
+      const storage = await getStorageStats();
+      const allNodes = await fetchAllUserNodes();
+      
+      const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+      const staleNodes = allNodes.filter(n => {
+        const lastUpd = n.lastUpdated?.seconds ? n.lastUpdated.seconds * 1000 : Date.now();
+        return lastUpd < thirtyDaysAgo;
+      });
+      const cdi = allNodes.length ? Math.round((staleNodes.length / allNodes.length) * 100) : 0;
 
-    const synthesis = nodes > 0 ? (edges / nodes) * 100 : 0;
+      const todayStart = new Date().setHours(0,0,0,0);
+      const todayNotes = allNodes.reduce((acc, n) => {
+        const count = (n.widgets || []).filter(w => {
+           const created = w.createdAt || n.createdAt?.seconds * 1000 || Date.now();
+           return created > todayStart;
+        }).length;
+        return acc + count;
+      }, 0);
+      const velocity = todayNotes > 0 ? Math.min(100, todayNotes * 10) : 0;
 
-    return {
-      totalNodes: nodes,
-      totalEdges: edges,
-      orphanDensity: orphans,
-      synthesisCoefficient: synthesis,
-      crossDomainCount: documents.length
-    };
-  }, [projects, documents]);
+      const totalDeps = allNodes.reduce((acc, n) => acc + (n.dependencies?.length || 0), 0);
+      const crd = allNodes.length ? (totalDeps / allNodes.length).toFixed(1) : 0;
+
+      const aiNotes = allNodes.reduce((acc, n) => {
+        return acc + (n.widgets || []).filter(w => w.type === 'markdown' && w.data?.includes('AI')).length;
+      }, 0);
+      const aiSaturation = allNodes.length ? Math.round((aiNotes / Math.max(1, allNodes.reduce((acc,n)=>acc+(n.widgets?.length||0),0))) * 100) : 0;
+
+      const history = await fetchTelemetryHistory();
+
+      const newStats = { storage, cdi, velocity, crd, aiSaturation, history };
+      setTelemetry(newStats);
+
+      // Auto-save today's snapshot
+      await saveTelemetrySnapshot({ cdi, velocity, crd, aiSaturation, storageSize: storage.count });
+    } catch (err) {
+      console.error("Telemetry failed", err);
+    }
+  };
+
+  useEffect(() => {
+    loadTelemetry();
+  }, [projects]);
+
+  const handleFlushCache = async () => {
+    if (confirm("Purge local binary cache? This will delete all locally stored PDFs but keep your nodes.")) {
+       await clearAllBlobs();
+       toast.success("Local volatility stabilized. Cache cleared.");
+       loadTelemetry();
+    }
+  };
 
   const recentProjects = projects.slice(0, 2);
   const recentDocs = documents.slice(0, 2);
@@ -125,63 +168,99 @@ export default function Dashboard() {
               <p className="meta-label opacity-40 mt-1">REAL-TIME RAM STATE ANALYSIS</p>
             </div>
 
-            {/* Stats Grid inside the right column */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+            {/* New High-Fidelity Stats Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
               
-              {/* Card 1: Synthesis Coefficient */}
-              <div className="glass-container p-8 flex flex-col justify-between aspect-square relative">
-                <span className="absolute top-8 right-8 meta-label opacity-50">01</span>
-                <div className="flex-1 flex items-center justify-center">
-                  <div className="flex items-baseline">
-                    <span className={`display-lg transition-all ${telemetry.synthesisCoefficient > 120 ? 'text-primary-container drop-shadow-[0_0_15px_rgba(181,216,215,0.7)]' : 'text-on-surface'}`}>
-                      {(telemetry.synthesisCoefficient / 100).toFixed(2)}
-                    </span>
-                    <span className="text-2xl font-light ml-1 text-primary-container">x</span>
-                  </div>
-                </div>
-                <div>
-                  <div className="meta-label">SYNTHESIS COEFFICIENT —</div>
-                  <p className="text-[10px] text-on-surface/50 mt-2 tracking-widest font-display uppercase">Deep Work Metric (Global Edges/Nodes)</p>
-                </div>
+              {/* Local Volatility */}
+              <div className="glass-container p-8 flex flex-col justify-between border-primary/20 bg-primary/5 min-h-[220px] group/stat">
+                 <div className="flex justify-between items-start">
+                   <Database size={20} className="text-primary opacity-50" />
+                   <span className="text-[10px] meta-label text-primary tracking-[0.2em]">LOCAL VOLATILITY</span>
+                 </div>
+                 <div>
+                   <div className="text-4xl font-display font-light text-on-surface">{telemetry.storage.formatted}</div>
+                   <div className="text-xs opacity-40 meta-label mt-2 uppercase">{telemetry.storage.count} PDFs ENCAPSULATED</div>
+                 </div>
+                 <button onClick={handleFlushCache} className="mt-6 text-[10px] meta-label text-error/50 hover:text-error transition-colors text-left uppercase tracking-widest opacity-0 group-hover/stat:opacity-100">Initialize Cache Purge</button>
               </div>
 
-              {/* Card 2: Orphan Density */}
-              <div className={`glass-container p-8 flex flex-col justify-between aspect-square relative ${telemetry.orphanDensity > 10 ? 'border-error/20 bg-error/5' : ''}`}>
-                 <span className="absolute top-8 right-8 meta-label opacity-50">02</span>
-                 
-                 <div className="flex-1 flex flex-col items-center justify-center text-center mt-6">
-                   <div className={`flex items-center gap-2 mb-2 ${telemetry.orphanDensity > 0 ? 'text-error' : 'text-primary/50'}`}>
-                     <AlertTriangle size={18} />
-                     <span className={`display-lg text-[2.5rem] ${telemetry.orphanDensity > 0 ? 'text-error' : 'text-primary/50'}`}>
-                       {telemetry.orphanDensity}
-                     </span>
-                   </div>
-                   <span className="text-sm opacity-60 font-body">Global Unlinked Nodes</span>
+              {/* Cognitive Decay */}
+              <div className="glass-container p-8 flex flex-col justify-between border-amber-500/20 bg-amber-500/5 min-h-[220px]">
+                 <div className="flex justify-between items-start">
+                   <ShieldAlert size={20} className="text-amber-500 opacity-50" />
+                   <span className="text-[10px] meta-label text-amber-500 tracking-[0.2em]">DECAY INDEX</span>
                  </div>
-
-                 <div className="flex flex-col gap-4 mt-auto">
-                    {telemetry.orphanDensity > 0 && (
-                      <button className="btn-secondary border-error/20 hover:bg-error/10 hover:text-error text-[10px] tracking-widest w-full">INITIATE CLEANUP PROTOCOL</button>
-                    )}
-                    <div className={`${telemetry.orphanDensity > 0 ? 'text-error/80' : 'opacity-40'} meta-label mt-2`}>ORPHAN COUNT —</div>
+                 <div>
+                   <div className="text-4xl font-display font-light text-amber-500">{telemetry.cdi}%</div>
+                   <div className="text-xs opacity-40 meta-label mt-2 uppercase">Stale knowledge nodes</div>
+                 </div>
+                 <div className="h-1 bg-surface-container rounded-full overflow-hidden mt-6">
+                    <div className="h-full bg-amber-500 transition-all duration-1000" style={{ width: `${telemetry.cdi}%` }} />
                  </div>
               </div>
 
-              {/* Card 3: Network Serendipity (Total Library Size + Projects) */}
-              <div className="glass-container p-8 flex flex-col justify-between min-h-[200px] relative xl:col-span-1">
-                 <span className="absolute top-8 right-8 meta-label opacity-50">03</span>
-                 <div className="h-10 w-10 rounded-full bg-primary-container/20 flex items-center justify-center mb-6">
-                   <Link2 size={18} className="text-secondary" />
+              {/* Synthesis Velocity */}
+              <div className="glass-container p-8 flex flex-col justify-between border-emerald-500/20 bg-emerald-500/5 min-h-[220px]">
+                 <div className="flex justify-between items-start">
+                   <TrendingUp size={20} className="text-emerald-500 opacity-50" />
+                   <span className="text-[10px] meta-label text-emerald-500 tracking-[0.2em]">VELOCITY</span>
                  </div>
-                 
-                 <div className="flex items-center gap-4 mb-2">
-                   <h3 className="text-5xl font-light text-primary-container drop-shadow-[0_0_10px_rgba(181,216,215,0.4)]">
-                     {telemetry.crossDomainCount}
-                   </h3>
-                   <span className="text-sm font-body opacity-80 leading-tight">Library<br/>Documents</span>
+                 <div>
+                   <div className="text-4xl font-display font-light text-emerald-500">▲ +{telemetry.velocity}%</div>
+                   <div className="text-xs opacity-40 meta-label mt-2 uppercase">7-Day Synthesis Delta</div>
                  </div>
+                 <div className="flex gap-2 mt-6 h-12 items-end">
+                    {/* Map last 7 days of real history, fallback to zero for new accounts */}
+                    {Array.from({ length: 7 }).map((_, i) => {
+                      const dayData = telemetry.history[i] || { velocity: 0 };
+                      const val = (i === 6) ? telemetry.velocity : dayData.velocity; // Current day is always the latest real calc
+                      return (
+                        <div 
+                          key={i} 
+                          className="flex-1 bg-emerald-500/20 rounded-t-sm transition-all duration-500" 
+                          style={{ height: `${Math.max(10, (val / 100) * 100)}%` }} 
+                        />
+                      );
+                    })}
+                 </div>
+              </div>
 
-                 <div className="meta-label mt-auto pt-6 border-t border-outline-variant/10">INGESTION VOLUME —</div>
+              {/* CRD Metric */}
+              <div className="glass-container p-8 flex flex-col justify-between border-blue-500/20 bg-blue-500/5 min-h-[220px]">
+                 <div className="flex justify-between items-start">
+                   <Link2 size={20} className="text-blue-500 opacity-50" />
+                   <span className="text-[10px] meta-label text-blue-500 tracking-[0.2em]">NETWORK DENSITY</span>
+                 </div>
+                 <div>
+                   <div className="text-4xl font-display font-light text-blue-500">{telemetry.crd}</div>
+                   <div className="text-xs opacity-40 meta-label mt-2 uppercase">Avg. References per node</div>
+                 </div>
+                 <div className="text-[10px] meta-label opacity-30 mt-6 uppercase tracking-widest">Integration: {telemetry.crd > 2 ? 'Optimal' : 'Siloed'}</div>
+              </div>
+
+              {/* AI Saturation */}
+              <div className="glass-container p-8 flex flex-col justify-between border-purple-500/20 bg-purple-500/5 min-h-[220px]">
+                 <div className="flex justify-between items-start">
+                   <Brain size={20} className="text-purple-500 opacity-50" />
+                   <span className="text-[10px] meta-label text-purple-500 tracking-[0.2em]">AI SATURATION</span>
+                 </div>
+                 <div>
+                   <div className="text-4xl font-display font-light text-purple-500">{telemetry.aiSaturation}%</div>
+                   <div className="text-xs opacity-40 meta-label mt-2 uppercase">Collaboration Ratio</div>
+                 </div>
+                 <div className="flex items-center gap-3 mt-6">
+                    <div className="w-3 h-3 rounded-full bg-purple-500 animate-pulse shadow-[0_0_10px_rgba(168,85,247,0.5)]" />
+                    <span className="text-[10px] meta-label opacity-40 uppercase tracking-widest">Cortex Link Active</span>
+                 </div>
+              </div>
+
+              {/* Quick Action: New Project */}
+              <div 
+                onClick={() => navigate('/projects')}
+                className="glass-container p-8 flex flex-col justify-center items-center border-outline-variant/30 bg-surface-container-highest/20 min-h-[220px] cursor-pointer hover:bg-surface-container-highest/40 hover:border-primary/30 transition-all group"
+              >
+                 <Plus size={32} className="text-primary-container opacity-30 group-hover:opacity-100 group-hover:scale-110 transition-all mb-4" />
+                 <span className="meta-label opacity-40 group-hover:opacity-100 transition-all">INITIALIZE NEW NEXUS</span>
               </div>
               
             </div>

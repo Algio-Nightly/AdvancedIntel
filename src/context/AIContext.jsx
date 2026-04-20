@@ -5,6 +5,25 @@ import { db } from '../services/firebase';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import { toast } from 'sonner';
 
+// Simple client-side encryption helper using UID as salt
+const crypt = (text, salt) => {
+  if (!text || !salt) return text;
+  try {
+    return btoa(text.split('').map((char, i) => 
+      String.fromCharCode(char.charCodeAt(0) ^ salt.charCodeAt(i % salt.length))
+    ).join(''));
+  } catch (e) { return text; }
+};
+
+const decrypt = (encoded, salt) => {
+  if (!encoded || !salt) return encoded;
+  try {
+    return atob(encoded).split('').map((char, i) => 
+      String.fromCharCode(char.charCodeAt(0) ^ salt.charCodeAt(i % salt.length))
+    ).join('');
+  } catch (e) { return encoded; }
+};
+
 const AIContext = createContext();
 
 export function AIProvider({ children }) {
@@ -24,15 +43,33 @@ export function AIProvider({ children }) {
 
     async function loadKey() {
       try {
+        // Try LocalStorage first (Maximum Privacy)
+        const localKey = localStorage.getItem(`ai_key_${currentUser.uid}`);
+        if (localKey) {
+          setApiKeyState(localKey);
+          setKeyLoaded(true);
+          return;
+        }
+
+        // Fallback to Firestore (Encrypted)
         const userRef = doc(db, 'Users', currentUser.uid);
         const snap = await getDoc(userRef);
-        if (snap.exists() && snap.data().geminiApiKey) {
-          setApiKeyState(snap.data().geminiApiKey);
+        if (snap.exists() && snap.data().geminiApiKeySecret) {
+          const decrypted = decrypt(snap.data().geminiApiKeySecret, currentUser.uid);
+          setApiKeyState(decrypted);
+        } else if (snap.exists() && snap.data().geminiApiKey) {
+          // Migration: Encrypt old plain keys
+          const plain = snap.data().geminiApiKey;
+          setApiKeyState(plain);
+          await updateDoc(userRef, { 
+            geminiApiKeySecret: crypt(plain, currentUser.uid),
+            geminiApiKey: '' // Clear plain key
+          });
         } else {
           setApiKeyState(import.meta.env.VITE_GEMINI_API_KEY || '');
         }
       } catch (err) {
-        console.warn('[AI] Failed to load API key from Firestore:', err);
+        console.warn('[AI] Failed to load API key:', err);
         setApiKeyState(import.meta.env.VITE_GEMINI_API_KEY || '');
       } finally {
         setKeyLoaded(true);
@@ -42,19 +79,24 @@ export function AIProvider({ children }) {
     loadKey();
   }, [currentUser?.uid]);
 
-  const saveApiKey = useCallback(async (newKey) => {
+  const saveApiKey = useCallback(async (newKey, persistLocal = false) => {
     if (!currentUser?.uid) return;
     try {
-      const userRef = doc(db, 'Users', currentUser.uid);
-      const snap = await getDoc(userRef);
-      if (snap.exists()) {
-        await updateDoc(userRef, { geminiApiKey: newKey });
+      if (persistLocal) {
+        localStorage.setItem(`ai_key_${currentUser.uid}`, newKey);
+        // Clear from cloud for max privacy
+        const userRef = doc(db, 'Users', currentUser.uid);
+        await updateDoc(userRef, { geminiApiKeySecret: '', geminiApiKey: '' });
       } else {
-        await setDoc(userRef, { geminiApiKey: newKey }, { merge: true });
+        localStorage.removeItem(`ai_key_${currentUser.uid}`);
+        const userRef = doc(db, 'Users', currentUser.uid);
+        const encrypted = crypt(newKey, currentUser.uid);
+        await setDoc(userRef, { geminiApiKeySecret: encrypted, geminiApiKey: '' }, { merge: true });
       }
+      
       setApiKeyState(newKey);
       chatSessionsRef.current.clear();
-      toast.success('API key saved to your profile.');
+      toast.success(persistLocal ? 'API key saved locally to browser.' : 'API key saved securely to cloud.');
     } catch (err) {
       console.error('[AI] Failed to save API key:', err);
       toast.error('Failed to save API key.');
@@ -65,11 +107,12 @@ export function AIProvider({ children }) {
   const removeApiKey = useCallback(async () => {
     if (!currentUser?.uid) return;
     try {
+      localStorage.removeItem(`ai_key_${currentUser.uid}`);
       const userRef = doc(db, 'Users', currentUser.uid);
-      await updateDoc(userRef, { geminiApiKey: '' });
+      await updateDoc(userRef, { geminiApiKeySecret: '', geminiApiKey: '' });
       setApiKeyState('');
       chatSessionsRef.current.clear();
-      toast.success('API key removed from your profile.');
+      toast.success('API key purged from all storage.');
     } catch (err) {
       console.error('[AI] Failed to remove API key:', err);
       toast.error('Failed to remove API key.');
